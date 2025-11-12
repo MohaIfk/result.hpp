@@ -461,3 +461,48 @@ TEST(ResultTests, ConstRvalueOverloads) {
   const Result<int> const_ok_2 = Result<int>::ok(50);
   EXPECT_EQ(std::move(const_ok_2).unwrap(), 50);
 }
+
+TEST(ResultTests, HandlesSameOkAndErrorTypes) {
+  // Test with Result<int, int>
+
+  // Test ::ok() factory and accessors
+  auto ok_int = Result<int, int>::ok(42);
+  ASSERT_TRUE(ok_int.is_ok());
+  ASSERT_FALSE(ok_int.is_err());
+  ASSERT_EQ(ok_int.unwrap(), 42);
+  ASSERT_EQ(*ok_int, 42);
+
+  // Test ::err() factory and accessors
+  auto err_int = Result<int, int>::err(100);
+  ASSERT_FALSE(err_int.is_ok());
+  ASSERT_TRUE(err_int.is_err());
+  ASSERT_EQ(err_int.unwrap_err(), 100);
+
+  // Test expect/unwrap on the wrong state
+  ASSERT_THROW(ok_int.unwrap_err(), std::runtime_error);
+  ASSERT_THROW(err_int.unwrap(), std::runtime_error);
+  ASSERT_THROW(err_int.expect("Should fail"), std::runtime_error);
+
+
+  // Test with Result<std::string, std::string>
+
+  // Test ::ok() factory
+  auto ok_str = Result<std::string, std::string>::ok("Success");
+  ASSERT_TRUE(ok_str.is_ok());
+  ASSERT_EQ(ok_str.unwrap(), "Success");
+
+  // Test ::err() factory
+  auto err_str = Result<std::string, std::string>::err("Failure");
+  ASSERT_TRUE(err_str.is_err());
+  ASSERT_EQ(err_str.unwrap_err(), "Failure");
+
+  // Test map on an Ok value
+  auto mapped_ok = ok_str.map([](const std::string& s) { return s + "!"; });
+  ASSERT_TRUE(mapped_ok.is_ok());
+  ASSERT_EQ(mapped_ok.unwrap(), "Success!");
+
+  // Test map on an Err value (should be a no-op)
+  auto mapped_err = err_str.map([](const std::string& s) { return s + "!"; });
+  ASSERT_TRUE(mapped_err.is_err());
+  ASSERT_EQ(mapped_err.unwrap_err(), "Failure");
+}
