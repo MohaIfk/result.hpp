@@ -17,7 +17,11 @@
 
 #pragma once
 
-#if __cplusplus >= 202002L
+#if _MSC_VER
+#include <yvals.h>
+#endif
+
+#if __cplusplus >= 202002L || _HAS_CXX20
 
 #include <optional>
 #include <stdexcept>

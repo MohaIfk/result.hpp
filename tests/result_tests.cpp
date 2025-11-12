@@ -300,8 +300,8 @@ TEST(ResultTests, Match) {
   std::string ok_val;
   std::string err_val;
 
-  auto ok_fn = [&](int& x) { ok_val = std::to_string(x); x = 100; return "ok"; };
-  auto err_fn = [&](Error& e) { err_val = e.message; e.message = "handled"; return "err"; };
+  auto ok_fn = [&](int& x) -> std::string { ok_val = std::to_string(x); x = 100; return "ok"; };
+  auto err_fn = [&](Error& e) -> std::string { err_val = e.message; e.message = "handled"; return "err"; };
 
   // Test lvalue Ok
   Result<int> ok_res = Result<int>::ok(42);
