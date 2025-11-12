@@ -256,12 +256,12 @@ TEST(ResultTests, MapErrChangesTypeOnOk) {
   // void
   auto result_v = Result<void, Error>::ok();
 
-  auto new_result_v = result.map_err([](const Error& e) {
+  auto new_result_v = result_v.map_err([](const Error& e) {
       return CustomError{e.code, e.message};
   });
 
   // Check that the type has changed
-  // static_assert(std::is_same_v<decltype(new_result_v), Result<void, CustomError>>, "map_err should change the error type");
+  static_assert(std::is_same_v<decltype(new_result_v), Result<void, CustomError>>, "map_err should change the error type");
 
   EXPECT_TRUE(new_result_v.is_ok());
 }
@@ -285,12 +285,12 @@ TEST(ResultTests, MapErrChangesTypeOnErr) {
   // void
   auto result_v = Result<void, Error>::err("Failed", 5);
 
-  auto new_result_v = result.map_err([](const Error& e) {
+  auto new_result_v = result_v.map_err([](const Error& e) {
       return CustomError{e.code, e.message + "!"};
   });
 
   // Check that the type has changed
-  // static_assert(std::is_same_v<decltype(new_result_v), Result<void, CustomError>>, "map_err should change the error type");
+  static_assert(std::is_same_v<decltype(new_result_v), Result<void, CustomError>>, "map_err should change the error type");
 
   EXPECT_TRUE(new_result_v.is_err());
   auto new_err_v = new_result_v.unwrap_err();
