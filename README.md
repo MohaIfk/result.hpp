@@ -181,6 +181,8 @@ The class is `Result<T, E = Error>`. A specialization `Result<void, E>` is provi
 - `to_optional()`: Returns `std::optional<T>` (`T` if `Ok`, `std::nullopt` if `Err`).
 - `unwrap_or(T default_val)`: Returns the `T` value or `default_val` if `Err`.
 - `unwrap_or_else(Fn<E> f)`: Returns the `T` value or computes it from the `E` value using `f`.
+- `inspect(Fn<T> f)` : If it's `Ok` it calls `f` with `T` then return the same `Result<T, E>` in both cases.
+- `inspect_err(Fn<E> f)` : If it's `Err` it calls `f` with `E` then return the same `Result<T, E>` in both cases.
 - `contains(const U& value)`: Returns `true` if `Ok` and the `value` equals `value`.
 - `match(FOk<T> ok_fn, FErr<E> err_fn)` : Calls `ok_fn` with `T` or `err_fn` with `E`. Both must return the same type.
 - `map(Fn<T> f)`: Calls `f` with `T` and returns a `Result<U, E>` with the new value (or `Result<void, E>` if f returns void).
@@ -198,6 +200,8 @@ The class is `Result<T, E = Error>`. A specialization `Result<void, E>` is provi
 - `unwrap_err()`, `expect_err(...)`: Same as `Result<T, E>`.
 - `to_optional()`: Returns `std::optional<std::monostate>` (`{}` if `Ok`, `std::nullopt` if `Err`).
 - `unwrap_or_else(Fn<E> f)`: If `Err`, calls `f(E)` which must return void.
+- `inspect(Fn<T> f)` : If it's `Ok` it calls `f` then return the same `Result<void, E>` in both cases.
+- `inspect_err(Fn<E> f)` : If it's `Err` it calls `f` with `E` then return the same `Result<void, E>` in both cases.
 - `match(FOk ok_fn, FErr<E> err_fn)`: Calls `ok_fn()` or `err_fn(E)`.
 - `map(Fn f)`: If `Ok`, calls `f()` and returns `Result<U, E>` (or `Result<void, E>` if `f` returns `void`).
 - `map_err(Fn<E> f)`: Same as `Result<T, E>`, returns `Result<void, E>`.

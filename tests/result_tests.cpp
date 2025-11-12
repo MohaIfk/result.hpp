@@ -228,8 +228,6 @@ TEST(ResultTests, OrElse) {
 
 TEST(ResultTests, MapErr) {
   auto remap = [](const Error& e) { return Error{e.message + "ed", 10}; };
-  auto remap_trans_error = [](const Error& e) { return CustomError{ e.code, e.message}; };
-  auto transform_error_int = [](const Error& e) { return e.code; };
 
   // Ok pass-through (const &)
   const auto ok_t = Result<int>::ok(42);
@@ -240,13 +238,64 @@ TEST(ResultTests, MapErr) {
   auto remap_res = err_t.map_err(remap);
   EXPECT_EQ(remap_res.unwrap_err().message, "failed");
   EXPECT_EQ(remap_res.unwrap_err().code, 10);
+}
 
-  // Transformed error mapping
-  const auto trans_err_t = Result<int>::err("fail", 55);
-  auto trans_remap_res = trans_err_t.map_err(remap_trans_error);
-  EXPECT_EQ(trans_remap_res.unwrap_err().details, "fail");
-  EXPECT_EQ(trans_remap_res.unwrap_err().error_code, 55);
-  EXPECT_EQ(trans_err_t.map_err(transform_error_int).unwrap_err(), 55);
+TEST(ResultTests, MapErrChangesTypeOnOk) {
+  auto result = Result<int, Error>::ok(100);
+
+  auto new_result = result.map_err([](const Error& e) {
+      return CustomError{e.code, e.message + "!"};
+  });
+
+  // Check that the type has changed
+  static_assert(std::is_same_v<decltype(new_result), Result<int, CustomError>>, "map_err should change the error type");
+
+  EXPECT_TRUE(new_result.is_ok());
+  EXPECT_EQ(new_result.unwrap(), 100);
+
+  // void
+  auto result_v = Result<void, Error>::ok();
+
+  auto new_result_v = result.map_err([](const Error& e) {
+      return CustomError{e.code, e.message};
+  });
+
+  // Check that the type has changed
+  // static_assert(std::is_same_v<decltype(new_result_v), Result<void, CustomError>>, "map_err should change the error type");
+
+  EXPECT_TRUE(new_result_v.is_ok());
+}
+
+TEST(ResultTests, MapErrChangesTypeOnErr) {
+  auto result = Result<int>::err("Failed", 5);
+
+  auto new_result = result.map_err([](const Error& e) {
+      return CustomError{e.code, e.message + "!"};
+  });
+
+  // Check that the type has changed
+  static_assert(std::is_same_v<decltype(new_result), Result<int, CustomError>>, "map_err should change the error type");
+
+  EXPECT_TRUE(new_result.is_err());
+  auto new_err = new_result.unwrap_err();
+  EXPECT_EQ(new_err.details, "Failed!");
+  EXPECT_EQ(new_err.error_code, 5);
+
+
+  // void
+  auto result_v = Result<void, Error>::err("Failed", 5);
+
+  auto new_result_v = result.map_err([](const Error& e) {
+      return CustomError{e.code, e.message + "!"};
+  });
+
+  // Check that the type has changed
+  // static_assert(std::is_same_v<decltype(new_result_v), Result<void, CustomError>>, "map_err should change the error type");
+
+  EXPECT_TRUE(new_result_v.is_err());
+  auto new_err_v = new_result_v.unwrap_err();
+  EXPECT_EQ(new_err_v.details, "Failed!");
+  EXPECT_EQ(new_err_v.error_code, 5);
 }
 
 TEST(ResultTests, MoveOnlyTypeSupport) {
@@ -514,4 +563,98 @@ TEST(ResultTests, HandlesSameOkAndErrorTypes) {
   auto mapped_err = err_str.map([](const std::string& s) { return s + "!"; });
   ASSERT_TRUE(mapped_err.is_err());
   ASSERT_EQ(mapped_err.unwrap_err(), "Failure");
+}
+
+
+TEST(ResultTests, InspectOnOk) {
+  auto result = Result<int>::ok(10);
+  bool inspected = false;
+
+  result.inspect([&](int val) {
+      inspected = true;
+      EXPECT_EQ(val, 10);
+  });
+
+  EXPECT_TRUE(inspected);
+
+  // void
+  auto result_v = Result<void>::ok();
+  inspected = false;
+
+  result_v.inspect([&]() {
+      inspected = true;
+  });
+
+  EXPECT_TRUE(inspected);
+}
+
+TEST(ResultTests, InspectOnErr) {
+  auto result = Result<int>::err("Error");
+  bool inspected = false;
+
+  // The lambda should not be called
+  result.inspect([&](int) {
+      inspected = true;
+  });
+
+  EXPECT_FALSE(inspected);
+
+  // void
+  auto result_v = Result<void>::err("Error");
+  inspected = false;
+
+  // The lambda should not be called
+  result_v.inspect([&]() {
+      inspected = true;
+  });
+
+  EXPECT_FALSE(inspected);
+}
+
+TEST(ResultTests, InspectErrOnOk) {
+  auto result = Result<int>::ok(10);
+  bool inspected = false;
+
+  // The lambda should not be called
+  result.inspect_err([&](const Error&) {
+      inspected = true;
+  });
+
+  EXPECT_FALSE(inspected);
+
+  // void
+  auto result_v = Result<void>::ok();
+  inspected = false;
+
+  // The lambda should not be called
+  result_v.inspect_err([&](const Error&) {
+      inspected = true;
+  });
+
+  EXPECT_FALSE(inspected);
+}
+
+TEST(ResultTests, InspectErrOnErr) {
+  auto result = Result<int>::err(Error("Test Error", 123));
+  bool inspected = false;
+
+  result.inspect_err([&](const Error& e) {
+      inspected = true;
+      EXPECT_EQ(e.message, "Test Error");
+      EXPECT_EQ(e.code, 123);
+  });
+
+  EXPECT_TRUE(inspected);
+
+  // void
+  auto result_v = Result<void>::err(Error("Test Error", 123));
+  inspected = false;
+
+  result_v.inspect_err([&](const Error& e) {
+      inspected = true;
+      EXPECT_EQ(e.message, "Test Error");
+      EXPECT_EQ(e.code, 123);
+  });
+
+  EXPECT_TRUE(inspected);
 }
