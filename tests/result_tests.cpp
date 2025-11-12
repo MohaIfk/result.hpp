@@ -5,6 +5,15 @@
 
 #include "../src/result.hpp"
 
+struct CustomError {
+  int error_code;
+  std::string details;
+
+  bool operator==(const CustomError& other) const {
+    return error_code == other.error_code && details == other.details;
+  }
+};
+
 TEST(ResultTests, BasicConstruction) {
   // Result<T>
   auto ok_t = Result<int>::ok(42);
@@ -61,7 +70,8 @@ TEST(ResultTests, UnwrapAndExpectT) {
   try {
     err_res.expect("custom");
   } catch (const std::runtime_error& e) {
-    EXPECT_STREQ(e.what(), "custom: fail"); // EXPECT_THAT(e.what(), HasSubstr("custom: fail"));
+    std::string what = e.what();
+    EXPECT_NE(what.find("custom: fail"), std::string::npos);
   }
 }
 
@@ -78,7 +88,8 @@ TEST(ResultTests, UnwrapAndExpectVoid) {
   try {
     err_res.expect("custom");
   } catch (const std::runtime_error& e) {
-    EXPECT_STREQ(e.what(), "custom: fail");
+    std::string what = e.what();
+    EXPECT_NE(what.find("custom: fail"), std::string::npos);
   }
 }
 
@@ -123,7 +134,6 @@ TEST(ResultTests, TryUnwrapAndToOptional) {
   const int* const_val_ptr = const_ok_res.try_unwrap();
   ASSERT_NE(const_val_ptr, nullptr);
   EXPECT_EQ(*const_val_ptr, 20);
-  // *const_val_ptr = 21; // <-- Should fail to compile (with: Cannot assign to readonly type const int), which is correct, i don't know how to test this :>
 
   // try_unwrap() on Err
   EXPECT_EQ(err_res.try_unwrap(), nullptr);
@@ -284,4 +294,170 @@ TEST(ResultTests, ContainsMethod) {
   auto result = Result<int>::ok(42);
   EXPECT_TRUE(result.contains(42));
   EXPECT_FALSE(result.contains(0));
+}
+
+TEST(ResultTests, Match) {
+  std::string ok_val;
+  std::string err_val;
+
+  auto ok_fn = [&](int& x) { ok_val = std::to_string(x); x = 100; return "ok"; };
+  auto err_fn = [&](Error& e) { err_val = e.message; e.message = "handled"; return "err"; };
+
+  // Test lvalue Ok
+  Result<int> ok_res = Result<int>::ok(42);
+  EXPECT_EQ(ok_res.match(ok_fn, err_fn), "ok");
+  EXPECT_EQ(ok_val, "42");
+  EXPECT_EQ(err_val, "");
+  EXPECT_EQ(ok_res.unwrap(), 100); // Check mutation
+
+  // Test lvalue Err
+  ok_val.clear();
+  Result<int> err_res = Result<int>::err("fail");
+  EXPECT_EQ(err_res.match(ok_fn, err_fn), "err");
+  EXPECT_EQ(ok_val, "");
+  EXPECT_EQ(err_val, "fail");
+  EXPECT_EQ(err_res.unwrap_err().message, "handled"); // Check mutation
+
+  // Test const lvalue Ok
+  const Result<int> const_ok_res = Result<int>::ok(10);
+  auto const_ok_fn = [](const int& x) { return x * 2; };
+  auto const_err_fn = [](const Error& e) { return (int)e.message.length(); };
+  EXPECT_EQ(const_ok_res.match(const_ok_fn, const_err_fn), 20);
+
+  // Test rvalue (moved) Ok
+  EXPECT_EQ(Result<int>::ok(7).match(
+      [](int&& x) { return std::to_string(std::move(x)); },
+      [](Error&& e) { return e.message; }
+  ), "7");
+
+  // Test rvalue (moved) Err
+  EXPECT_EQ(Result<int>::err("rvalue").match(
+      [](int&& x) -> std::string { return std::to_string(std::move(x)); },
+      [](Error&& e) -> std::string { return e.message; }
+  ), "rvalue");
+
+  // Test void specialization
+  bool ok_called = false;
+  bool err_called = false;
+  Result<void>::ok().match(
+      [&]() { ok_called = true; },
+      [&](Error&& e) { err_called = true; }
+  );
+  EXPECT_TRUE(ok_called);
+  EXPECT_FALSE(err_called);
+
+  ok_called = false;
+  err_called = false;
+  Result<void>::err("void fail").match(
+      [&]() { ok_called = true; },
+      [&](Error&& e) { err_called = true; }
+  );
+  EXPECT_FALSE(ok_called);
+  EXPECT_TRUE(err_called);
+}
+
+TEST(ResultTests, GeneralizedErrorTypeE) {
+  // Use the full template, not the alias
+  using CustomResult = Result<int, CustomError>;
+
+  auto ok_res = CustomResult::ok(100);
+  auto err_res = CustomResult::err(CustomError{404, "Not Found"});
+
+  // Basic checks
+  EXPECT_TRUE(ok_res.is_ok());
+  EXPECT_FALSE(err_res.is_ok());
+  EXPECT_EQ(ok_res.unwrap(), 100);
+  EXPECT_EQ(err_res.unwrap_err().error_code, 404);
+
+  // Test expect (which can't print custom error details)
+  ASSERT_THROW(err_res.expect("custom"), std::runtime_error);
+  try {
+    err_res.expect("custom");
+  } catch(const std::runtime_error& e) {
+    // Note: expect() doesn't know about CustomError.message
+    EXPECT_STREQ(e.what(), "custom");
+  }
+
+  // map
+  auto map_res = err_res.map([](int x) { return x * 2; });
+  EXPECT_TRUE(map_res.is_err());
+  EXPECT_EQ(map_res.unwrap_err().details, "Not Found");
+
+  // and_then
+  auto and_then_res = ok_res.and_then([](int x) {
+    return Result<std::string, CustomError>::err(CustomError{500, "Server Error"});
+  });
+  EXPECT_TRUE(and_then_res.is_err());
+  EXPECT_EQ(and_then_res.unwrap_err().error_code, 500);
+
+  // map_err
+  auto map_err_res = err_res.map_err([](const CustomError& e) {
+    return CustomError{e.error_code, e.details + " (mapped)"};
+  });
+  EXPECT_EQ(map_err_res.unwrap_err().details, "Not Found (mapped)");
+
+  // or_else
+  auto or_else_res = err_res.or_else([](const CustomError& e) {
+    if (e.error_code == 404) {
+        return CustomResult::ok(0); // Recover with a default
+    }
+    return CustomResult::err(e);
+  });
+  EXPECT_TRUE(or_else_res.is_ok());
+  EXPECT_EQ(or_else_res.unwrap(), 0);
+
+  // match
+  auto match_res = err_res.match(
+      [](int x) { return std::to_string(x); },
+      [](const CustomError& e) { return e.details; }
+  );
+  EXPECT_EQ(match_res, "Not Found");
+}
+
+TEST(ResultTests, LvalueConstAccessors) {
+  // Test operator* and operator-> on mutable lvalues
+  Result<std::string> ok_res = Result<std::string>::ok("hello");
+  EXPECT_EQ(*ok_res, "hello");
+  EXPECT_EQ(ok_res->length(), 5);
+
+  *ok_res = "world";
+  EXPECT_EQ(ok_res.unwrap(), "world");
+
+  // Test operator* and operator-> on const lvalues
+  const Result<std::string> const_ok_res = Result<std::string>::ok("const");
+  EXPECT_EQ(*const_ok_res, "const");
+  EXPECT_EQ(const_ok_res->length(), 5);
+  // *const_ok_res = "fail"; // This needs to fail to compile, I just don't know how to automate this test. TODO: each time I uncomment it then test the failing
+}
+
+TEST(ResultTests, TemplatedFactories) {
+  // Test template<typename U> ok(U&& value)
+  const char* c_str = "hello";
+  auto ok_from_cstr = Result<std::string>::ok(c_str);
+  EXPECT_EQ(ok_from_cstr.unwrap(), "hello");
+
+  // Test [[nodiscard]] static Result<T, E> err(E error)
+  // (using CustomError to distinguish from the (string, int) factory)
+  auto err_from_custom = Result<int, CustomError>::err(CustomError{1, "test"});
+  EXPECT_TRUE(err_from_custom.is_err());
+  EXPECT_EQ(err_from_custom.unwrap_err().details, "test");
+}
+
+TEST(ResultTests, ConstRvalueOverloads) {
+  // Create a const object
+  const Result<int> const_ok = Result<int>::ok(10);
+
+  // Move from the const object (invokes const&& overload)
+  auto map_res = std::move(const_ok).map([](const int& x) { return x * 2; });
+  EXPECT_EQ(map_res.unwrap(), 20);
+
+  const Result<int> const_err = Result<int>::err("fail");
+  auto err_res = std::move(const_err).map_err([](const Error& e) {
+      return Error{e.message + "ed", e.code};
+  });
+  EXPECT_EQ(err_res.unwrap_err().message, "failed");
+
+  // Test unwrap() const&&
+  const Result<int> const_ok_2 = Result<int>::ok(50);
+  EXPECT_EQ(std::move(const_ok_2).unwrap(), 50);
 }

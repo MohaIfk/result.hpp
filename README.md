@@ -148,6 +148,7 @@ void process_chain() {
 - `to_optional()`: Returns `std::optional<T>` (`T` if Ok, `std::nullopt` if `Error`).
 - `unwrap_or(T default_val)`: Returns the `T` value or a default if it's an `Error`.
 - `unwrap_or_else(Fn f)`: Returns the `T` value or computes it from the `Error` using `f`.
+- `match(FOk ok_fn, FErr err_fn)` : Calls `ok_fn` with `T` value if it's an `Ok` or calls `err_fn` with `E` if it's an `Error` (`ok_fn` and `ok_err` must have the same return type)
 - `map(Fn f)`: Calls `f` with the `T` value and returns a new Result with the new value.
 - `map_err(Fn f)`: If `Error`, calls `f` with the `Error` to create a new `Error`.
 - `and_then(Fn f)`: Calls `f` with the `T` value. `f` must return a Result.
