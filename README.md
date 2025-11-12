@@ -12,9 +12,10 @@ Inspired by Rust's `Result` type, this library leverages C++20 features (Concept
 
 * **Header-Only:** No build steps or library linking required. Just drop it in.
 * **C++20 Native:** Uses Concepts (`requires`) for clear compile-time constraints.
-* **Zero-Cost Abstraction:** Heavily optimized with `[[nodiscard]]` and `constexpr` friendly structures.
+* **Flexible Error** Types: `Result<T, E>` is generic over the error type `E`. It defaults to `Error (std::string message, int code)`, but you can use any type.
+* **Zero-Cost Abstraction:** Heavily optimized with `[[nodiscard]]` and move semantics.
 * **Full Move Semantics:** Implements `&`, `const &`, `&&`, and `const &&` overloads for all monadic operations, allowing efficient chaining of move-only types (like `std::unique_ptr`).
-* **In-Place Construction:** specialized factories (`ok_in_place`) to construct values directly inside the variant, avoiding unnecessary moves.
+* **In-Place Construction:** Specialized factories (`ok_in_place`, `err_in_place`) to construct values directly inside the variant, avoiding unnecessary moves.
 * **Monadic Interface:** Chain operations cleanly using `map`, `and_then`, `or_else`, and `match`.
 
 ## Requirements
@@ -36,16 +37,19 @@ This is a **header-only** library.
 
 ### Basic Usage
 
-Create functions that return a `Result` instead of throwing exceptions or returning magic numbers.
+Create functions that return a `Result` instead of throwing exceptions or returning magic numbers. `Result<T>` is an alias for `Result<T, Error>`.
 
 ```c++
-#include "src/result.hpp"
+#include "result.hpp" // Assumes the file is in the include path
 #include <string>
+#include <iostream>
 #include <stdexcept>
 
 // A function that can fail
+// By default, Result<double> is Result<double, Error>
 Result<double> safe_divide(double a, double b) {
     if (b == 0.0) {
+        // .err() with string and code is a helper for the default Error type
         return Result<double>::err("Division by zero!", 1);
     } else {
         return Result<double>::ok(a / b);
@@ -62,6 +66,26 @@ Result<void> print_if_positive(int x) {
 }
 ```
 
+### Custom Error Type
+
+You can specify any type as the error.
+
+```c++
+enum class FileError {
+    NotFound,
+    PermissionDenied,
+    Unknown
+};
+
+Result<std::string, FileError> read_file(const std::string& path) {
+    if (path.empty()) {
+        return Result<std::string, FileError>::err(FileError::NotFound);
+    }
+    // logic to read file...
+    return Result<std::string, FileError>::ok("File content");
+}
+```
+
 ### Handling a Result
 
 Check and unwrap the `Result` safely.
@@ -73,10 +97,11 @@ void handle_division() {
     if (res) { // 'res' is true if ok, false if err
         std::cout << "Result: " << *res << std::endl; // Use * or ->
     } else {
+        // .unwrap_err() gets the error value (Error struct by default)
         std::cout << "Error: " << res.unwrap_err().message << std::endl;
     }
 
-    // 2. The 'unwrap_or' (default value)
+    // The 'unwrap_or' (default value)
     double val = safe_divide(10.0, 0.0).unwrap_or(0.0);
     std::cout << "Value or default: " << val << std::endl; // Prints 0.0
 
@@ -135,24 +160,49 @@ void process_chain() {
 
 ## API Reference (Brief)
 
-`Result<T>`
-- `Result<T>::ok(T value)` / `Result<T>::ok_in_place(...)`: Creates a success Result.
-- `Result<T>::err(Error error)` / `Result<T>::err_in_place(const std::string& message, const int code = 0)`: Creates an error Result.
+The class is `Result<T, E = Error>`. A specialization `Result<void, E>` is provided.
+
+#### `Result<T, E>` (Value specialization)
+- `static ok(T value)` / `static ok(U&& value)`: Creates a success Result from a value.
+- `static ok_in_place(Args&&... args)`: Constructs T in-place.
+- `static err(E error)`: Creates an error Result from an error value.
+- `static err(const std::string&, int code = 0)`: Helper for `E = Error`.
+- `static err_in_place(EArgs&&... args)`: Constructs `E` in-place.
 - `is_ok()`: Returns `true` if it's an `Ok` value.
-- `is_err()`: Returns `true` if it's an `Error` value.
-- `unwrap()`: Returns the `T` value. **Panics** if it's an `Error`.
+- `is_err()`: Returns `true` if it's an `Err` value.
+- `operator bool()`: Same as `is_ok()`.
+- `operator*()`: Dereferences to the contained `T` value. **Panics** if `Err`.
+- `operator->()`: Dereferences to the contained `T` value. **Panics** if `Err`.
+- `unwrap()`: Returns the `T` value. **Panics** if `Err`.
 - `expect(const std::string& msg)`: Like `unwrap()`, but **panics** with a custom message.
-- `unwrap_err()`: Returns the `Error` value. **Panics** if it's an Ok.
+- `unwrap_err()`: Returns the `E` value. **Panics** if `Ok`.
 - `expect_err(const std::string& msg)`: Like `unwrap_err()`, but **panics** with a custom message.
-- `try_unwrap()`: Returns `T*` if `Ok`, `nullptr` if `Error`.
-- `to_optional()`: Returns `std::optional<T>` (`T` if Ok, `std::nullopt` if `Error`).
-- `unwrap_or(T default_val)`: Returns the `T` value or a default if it's an `Error`.
-- `unwrap_or_else(Fn f)`: Returns the `T` value or computes it from the `Error` using `f`.
-- `match(FOk ok_fn, FErr err_fn)` : Calls `ok_fn` with `T` value if it's an `Ok` or calls `err_fn` with `E` if it's an `Error` (`ok_fn` and `ok_err` must have the same return type)
-- `map(Fn f)`: Calls `f` with the `T` value and returns a new Result with the new value.
-- `map_err(Fn f)`: If `Error`, calls `f` with the `Error` to create a new `Error`.
-- `and_then(Fn f)`: Calls `f` with the `T` value. `f` must return a Result.
-- `or_else(Fn f)`: If `Error`, calls `f` with the `Error`. `f` must return a Result.
+- `try_unwrap()`: Returns `T*` if `Ok`, `nullptr` if `Err`.
+- `to_optional()`: Returns `std::optional<T>` (`T` if `Ok`, `std::nullopt` if `Err`).
+- `unwrap_or(T default_val)`: Returns the `T` value or `default_val` if `Err`.
+- `unwrap_or_else(Fn<E> f)`: Returns the `T` value or computes it from the `E` value using `f`.
+- `contains(const U& value)`: Returns `true` if `Ok` and the `value` equals `value`.
+- `match(FOk<T> ok_fn, FErr<E> err_fn)` : Calls `ok_fn` with `T` or `err_fn` with `E`. Both must return the same type.
+- `map(Fn<T> f)`: Calls `f` with `T` and returns a `Result<U, E>` with the new value (or `Result<void, E>` if f returns void).
+- `map_err(Fn<E> f)`: Calls `f` with `E` to create a new `E` and returns `Result<T, E>`.
+- `and_then(Fn<T> f)`: Calls `f` with `T`. `f` must return a `Result<U, E>`.
+- `or_else(Fn<E> f)`: If `Err`, calls `f` with `E`. `f` must return a `Result<T, E>`.
+
+#### `Result<void, E>` (Void specialization)
+
+- `static ok()`: Creates a success `Result<void, E>`.
+- `static err(E error)` / `static err_in_place(...)` / `static err(const std::string&, int code = 0)`: Same as `Result<T, E>`.
+- `is_ok()`, `is_err()`, `operator bool()`: Same as `Result<T, E>`.
+- `unwrap()`: Does nothing. Panics if Err.
+- `expect(const std::string& msg)`: Like `unwrap()`, but **panics** with a custom message.
+- `unwrap_err()`, `expect_err(...)`: Same as `Result<T, E>`.
+- `to_optional()`: Returns `std::optional<std::monostate>` (`{}` if `Ok`, `std::nullopt` if `Err`).
+- `unwrap_or_else(Fn<E> f)`: If `Err`, calls `f(E)` which must return void.
+- `match(FOk ok_fn, FErr<E> err_fn)`: Calls `ok_fn()` or `err_fn(E)`.
+- `map(Fn f)`: If `Ok`, calls `f()` and returns `Result<U, E>` (or `Result<void, E>` if `f` returns `void`).
+- `map_err(Fn<E> f)`: Same as `Result<T, E>`, returns `Result<void, E>`.
+- `and_then(Fn f)`: If `Ok`, calls `f()`. `f` must return a `Result<U, E>`.
+- `or_else(Fn<E> f)`: If `Err`, calls `f(E)`. `f` must return a `Result<void, E>`.
 
 *All methods have &, const &, &&, and const && overloads for maximum performance and move-safety.*
 
@@ -162,8 +212,8 @@ The test suite is built with GoogleTest.
 
 #### You can samply use the CMakeList.txt provided in the repo or do it by your self
 
-1. Make sure you have GoogleTest available (e.g., via a submodule, find_package, or FetchContent).
-2. If using CMake, you can use FetchContent to get GTest:
+1. Make sure you have GoogleTest available (e.g., via a submodule, `find_package`, or `FetchContent`).
+2. If using `CMake`, you can use `FetchContent` to get `GTest`:
 ```cmake
 # In your CMakeLists.txt
 include(FetchContent)
