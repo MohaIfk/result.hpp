@@ -307,19 +307,19 @@ public:
     }
 
     template<typename F> requires std::invocable<F, E&>
-    Result<void, E> map_err(F&& f) & {
+    auto map_err(F&& f) & {
         return map_err_impl(*this, std::forward<F>(f));
     }
     template<typename F> requires std::invocable<F, const E&>
-    Result<void, E> map_err(F&& f) const & {
+    auto map_err(F&& f) const & {
         return map_err_impl(*this, std::forward<F>(f));
     }
     template<typename F> requires std::invocable<F, E&&>
-    Result<void, E> map_err(F&& f) && {
+    auto map_err(F&& f) && {
         return map_err_impl(std::move(*this), std::forward<F>(f));
     }
     template<typename F> requires std::invocable<F, const E&&>
-    Result<void, E> map_err(F&& f) const && {
+    auto map_err(F&& f) const && {
         return map_err_impl(std::move(*this), std::forward<F>(f));
     }
 
@@ -421,17 +421,19 @@ private:
     }
 
     template <typename Self, typename F>
-    static Result<void, E> map_err_impl(Self&& self, F&& f) {
+    static auto map_err_impl(Self&& self, F&& f) {
+        using ErrorType = std::invoke_result_t<F, decltype(std::forward<Self>(self).unwrap_err())>;
+
         return std::visit(
-            [&]<typename T0>(T0&& arg) -> Result<void, E> {
+            [&]<typename T0>(T0&& arg) -> Result<void, ErrorType> {
                 if constexpr (std::is_same_v<std::decay_t<T0>, std::monostate>) {
-                    return Result<void, E>::ok();
+                    return Result<void, ErrorType>::ok();
                 } else {
                     using FResult = std::invoke_result_t<F, T0>;
                     if constexpr (std::is_same_v<FResult, E>) {
-                        return Result<void, E>::err(std::invoke(std::forward<F>(f), std::forward<T0>(arg)));
+                        return Result<void, ErrorType>::err(std::invoke(std::forward<F>(f), std::forward<T0>(arg)));
                     } else {
-                      return Result<void, E>::err_in_place(std::invoke(std::forward<F>(f), std::forward<T0>(arg)));
+                      return Result<void, ErrorType>::err_in_place(std::invoke(std::forward<F>(f), std::forward<T0>(arg)));
                     }
                 }
             },
@@ -735,19 +737,19 @@ public:
 
     // For now, the `map_err` transforms the error but keeps the same type E
     template<std::invocable<E&> F>
-    Result<T, E> map_err(F&& f) & {
+    auto map_err(F&& f) & {
         return map_err_impl(*this, std::forward<F>(f));
     }
     template<std::invocable<const E&> F>
-    Result<T, E> map_err(F&& f) const & {
+    auto map_err(F&& f) const & {
         return map_err_impl(*this, std::forward<F>(f));
     }
     template<std::invocable<E&&> F>
-    Result<T, E> map_err(F&& f) && {
+    auto map_err(F&& f) && {
         return map_err_impl(std::move(*this), std::forward<F>(f));
     }
     template<std::invocable<const E&&> F>
-    Result<T, E> map_err(F&& f) const && {
+    auto map_err(F&& f) const && {
         return map_err_impl(std::move(*this), std::forward<F>(f));
     }
 
@@ -849,17 +851,19 @@ private:
     }
 
     template <typename Self, typename F>
-    static Result<T, E> map_err_impl(Self&& self, F&& f) {
+    static auto map_err_impl(Self&& self, F&& f) {
+        using ErrorType = std::invoke_result_t<F, decltype(std::forward<Self>(self).unwrap_err())>;
+
         return std::visit(
-            [&]<typename T0>(T0&& arg) -> Result<T, E> {
+            [&]<typename T0>(T0&& arg) -> Result<T, ErrorType> {
                 if constexpr (std::is_same_v<std::decay_t<T0>, Ok<T>>) {
-                    return Result<T, E>::ok(std::forward<T0>(arg).value);
+                    return Result<T, ErrorType>::ok(std::forward<T0>(arg).value);
                 } else {
                     using FResult = std::invoke_result_t<F, decltype(std::forward<T0>(arg).error)>;
-                    if constexpr (std::is_same_v<FResult, Err<E>>) {
-                        return Result<T, E>::err(std::invoke(std::forward<F>(f), std::forward<T0>(arg).error));
+                    if constexpr (std::is_same_v<FResult, Err<ErrorType>>) {
+                        return Result<T, ErrorType>::err(std::invoke(std::forward<F>(f), std::forward<T0>(arg).error));
                     } else {
-                        return Result<T, E>::err_in_place(std::invoke(std::forward<F>(f), std::forward<T0>(arg).error));
+                        return Result<T, ErrorType>::err_in_place(std::invoke(std::forward<F>(f), std::forward<T0>(arg).error));
                     }
                 }
             }, std::forward<Self>(self).data_);
