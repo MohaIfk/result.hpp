@@ -272,6 +272,64 @@ public:
         }
     }
 
+    template<std::invocable F>
+    Result& inspect(F&& f) & {
+        if (is_ok()) {
+            std::invoke(std::forward<F>(f));
+        }
+        return *this;
+    }
+    template<std::invocable F>
+    const Result& inspect(F&& f) const & {
+        if (is_ok()) {
+            std::invoke(std::forward<F>(f));
+        }
+        return *this;
+    }
+    template<std::invocable F>
+    Result&& inspect(F&& f) && {
+        if (is_ok()) {
+            std::invoke(std::forward<F>(f));
+        }
+        return std::move(*this);
+    }
+    template<std::invocable F>
+    const Result&& inspect(F&& f) const && {
+        if (is_ok()) {
+            std::invoke(std::forward<F>(f));
+        }
+        return std::move(*this);
+    }
+
+    template<std::invocable<E&> F>
+    Result& inspect_err(F&& f) & {
+        if (is_err()) {
+            std::invoke(std::forward<F>(f), std::get<E>(data_));
+        }
+        return *this;
+    }
+    template<std::invocable<const E&> F>
+    const Result& inspect_err(F&& f) const & {
+        if (is_err()) {
+            std::invoke(std::forward<F>(f), std::get<E>(data_));
+        }
+        return *this;
+    }
+    template<std::invocable<E&&> F>
+    Result&& inspect_err(F&& f) && {
+        if (is_err()) {
+            std::invoke(std::forward<F>(f), std::move(std::get<E>(data_)));
+        }
+        return std::move(*this);
+    }
+    template<std::invocable<const E&&> F>
+    const Result&& inspect_err(F&& f) const && {
+        if (is_err()) {
+            std::invoke(std::forward<F>(f), std::move(std::get<E>(data_)));
+        }
+        return std::move(*this);
+    }
+
     template<typename F> requires returns_result_for<F>
     auto and_then(F&& f) & {
         return and_then_impl(*this, std::forward<F>(f));
@@ -662,11 +720,11 @@ public:
         return match_impl(std::move(*this), std::forward<FOk>(ok_fn), std::forward<FErr>(err_fn));
     }
 
-    [[nodiscard]] T unwrap_or(const T& default_val) const & {
+    [[nodiscard]] T unwrap_or(const T& default_val) const & noexcept {
         if(is_ok()) return std::get<Ok<T>>(data_).value;
         return default_val;
     }
-    [[nodiscard]] T unwrap_or(T&& default_val) && {
+    [[nodiscard]] T unwrap_or(T&& default_val) && noexcept {
         if(is_ok()) return std::move(std::get<Ok<T>>(data_).value);
         return std::move(default_val);
     }
@@ -690,6 +748,64 @@ public:
     T unwrap_or_else(F&& f) const && {
         if (is_ok()) return std::move(std::get<Ok<T>>(data_).value);
         return std::invoke(std::forward<F>(f), std::move(std::get<Err<E>>(data_).error));
+    }
+
+    template<std::invocable<T&> F>
+    Result& inspect(F&& f) & {
+        if (is_ok()) {
+            std::invoke(std::forward<F>(f), std::get<Ok<T>>(data_).value);
+        }
+        return *this;
+    }
+    template<std::invocable<const T&> F>
+    const Result& inspect(F&& f) const & {
+        if (is_ok()) {
+            std::invoke(std::forward<F>(f), std::get<Ok<T>>(data_).value);
+        }
+        return *this;
+    }
+    template<std::invocable<T&&> F>
+    Result&& inspect(F&& f) && {
+        if (is_ok()) {
+            std::invoke(std::forward<F>(f), std::move(std::get<Ok<T>>(data_).value));
+        }
+        return std::move(*this);
+    }
+    template<std::invocable<const T&&> F>
+    const Result&& inspect(F&& f) const && {
+        if (is_ok()) {
+            std::invoke(std::forward<F>(f), std::move(std::get<Ok<T>>(data_).value));
+        }
+        return std::move(*this);
+    }
+
+    template<std::invocable<E&> F>
+    Result& inspect_err(F&& f) & {
+        if (is_err()) {
+            std::invoke(std::forward<F>(f), std::get<Err<E>>(data_).error);
+        }
+        return *this;
+    }
+    template<std::invocable<const E&> F>
+    const Result& inspect_err(F&& f) const & {
+        if (is_err()) {
+            std::invoke(std::forward<F>(f), std::get<Err<E>>(data_).error);
+        }
+        return *this;
+    }
+    template<std::invocable<E&&> F>
+    Result&& inspect_err(F&& f) && {
+        if (is_err()) {
+            std::invoke(std::forward<F>(f), std::move(std::get<Err<E>>(data_).error));
+        }
+        return std::move(*this);
+    }
+    template<std::invocable<const E&&> F>
+    const Result&& inspect_err(F&& f) const && {
+        if (is_err()) {
+            std::invoke(std::forward<F>(f), std::move(std::get<Err<E>>(data_).error));
+        }
+        return std::move(*this);
     }
 
     [[nodiscard]] T* try_unwrap() & noexcept {

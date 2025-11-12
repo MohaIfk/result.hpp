@@ -228,6 +228,8 @@ TEST(ResultTests, OrElse) {
 
 TEST(ResultTests, MapErr) {
   auto remap = [](const Error& e) { return Error{e.message + "ed", 10}; };
+  auto remap_trans_error = [](const Error& e) { return CustomError{ e.code, e.message}; };
+  auto transform_error_int = [](const Error& e) { return e.code; };
 
   // Ok pass-through (const &)
   const auto ok_t = Result<int>::ok(42);
@@ -238,6 +240,13 @@ TEST(ResultTests, MapErr) {
   auto remap_res = err_t.map_err(remap);
   EXPECT_EQ(remap_res.unwrap_err().message, "failed");
   EXPECT_EQ(remap_res.unwrap_err().code, 10);
+
+  // Transformed error mapping
+  const auto trans_err_t = Result<int>::err("fail", 55);
+  auto trans_remap_res = trans_err_t.map_err(remap_trans_error);
+  EXPECT_EQ(trans_remap_res.unwrap_err().details, "fail");
+  EXPECT_EQ(trans_remap_res.unwrap_err().error_code, 55);
+  EXPECT_EQ(trans_err_t.map_err(transform_error_int).unwrap_err(), 55);
 }
 
 TEST(ResultTests, MoveOnlyTypeSupport) {
