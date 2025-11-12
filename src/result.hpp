@@ -16,6 +16,9 @@
 //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 #pragma once
+
+#if __cplusplus >= 202002L
+
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -28,15 +31,15 @@ struct Error {
     int code = 0;
 };
 
-template<typename T>
+template<typename T, typename E = Error>
 class Result;
-template<>
-class Result<void>;
+template<typename E>
+class Result<void, E>;
 
 template<typename>
 struct is_result : std::false_type {};
-template<typename T>
-struct is_result<Result<T>> : std::true_type {};
+template<typename T, typename E>
+struct is_result<Result<T, E>> : std::true_type {};
 template<typename T>
 inline constexpr bool is_result_v = is_result<T>::value;
 
@@ -47,41 +50,43 @@ template<typename F>
 concept returns_result_for_void = std::invocable<F> && is_result_v<std::invoke_result_t<F>>;
 
 // Specialization for Result<void>
-template<>
-class Result<void> {
+template<typename E>
+class Result<void, E> {
 public:
     using value_type = void;
-    using error_type = Error;
+    using error_type = E;
 
-    [[nodiscard]] static Result<void> ok() {
-        return Result<void>(std::in_place_index<0>);
+    [[nodiscard]] static Result<void, E> ok() {
+        return Result<void, E>(std::in_place_index<0>);
     }
 
-    [[nodiscard]] static Result<void> err(const std::string& message, const int code = 0) {
-        return Result<void>(std::in_place_index<1>, Error{message, code});
+    [[nodiscard]] static Result<void, E> err(const std::string& message, const int code = 0)
+        requires std::is_same_v<E, Error>
+    {
+        return Result<void, E>(std::in_place_index<1>, Error{message, code});
     }
 
-    [[nodiscard]] static Result<void> err(Error error) {
-        return Result<void>(std::in_place_index<1>, std::move(error));
+    [[nodiscard]] static Result<void, E> err(E error) {
+        return Result<void, E>(std::in_place_index<1>, std::move(error));
     }
 
     template<typename... EArgs>
-        requires std::constructible_from<Error, EArgs...>
-    [[nodiscard]] static Result<void> err_in_place(EArgs&&... args) {
-        return Result<void>(std::in_place_index<1>, std::forward<EArgs>(args)...);
+        requires std::constructible_from<E, EArgs...>
+    [[nodiscard]] static Result<void, E> err_in_place(EArgs&&... args) {
+        return Result<void, E>(std::in_place_index<1>, std::forward<EArgs>(args)...);
     }
 
-    [[nodiscard]] bool is_ok() const { return std::holds_alternative<std::monostate>(data_); }
-    [[nodiscard]] bool is_err() const { return std::holds_alternative<Error>(data_); }
+    [[nodiscard]] bool is_ok() const noexcept { return std::holds_alternative<std::monostate>(data_); }
+    [[nodiscard]] bool is_err() const noexcept { return std::holds_alternative<E>(data_); }
     explicit operator bool() const noexcept { return is_ok(); }
 
     void expect(const std::string& msg) const {
         std::visit(
             [&]<typename T0>(const T0& arg) -> void {
-                using Args = std::decay_t<T0>;
-
-                if constexpr (std::is_same_v<Args, Error>) {
+                if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
                     throw std::runtime_error(msg + ": " + arg.message);
+                } else if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
+                    throw std::runtime_error(msg);
                 }
             },
             data_
@@ -91,62 +96,60 @@ public:
     void unwrap() {
         return std::visit(
             [&]<typename T0>(T0&& arg) -> void {
-                using Arg = std::decay_t<T0>;
-
-                if constexpr (std::is_same_v<Arg, Error>) {
+                if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
                     throw std::runtime_error("Attempted to unwrap error result: " + arg.message);
+                } else if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
+                    throw std::runtime_error("Attempted to unwrap error result");
                 }
             },
         data_);
     }
 
-    void unwrap_or_else(std::function<void(Error&)> f) & {
+    void unwrap_or_else(std::function<void(E&)> f) & {
         std::visit(
             [&]<typename T0>(T0& arg) {
-                if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+                if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                     f(arg);
                 }
             },
        data_);
     }
-
-    void unwrap_or_else(std::function<void(const Error&)> f) const & {
+    void unwrap_or_else(std::function<void(const E&)> f) const & {
         std::visit(
             [&]<typename T0>(const T0& arg) {
-                if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+                if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                     f(arg);
                 }
             },
        data_);
     }
-
-    void unwrap_or_else(std::function<void(Error&&)> f) && {
+    void unwrap_or_else(std::function<void(E&&)> f) && {
         std::visit(
             [&]<typename T0>(T0&& arg) {
-                if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+                if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                     f(std::move(arg));
                 }
             },
        data_);
     }
 
-    [[nodiscard]] Error& unwrap_err() & {
-        return std::get<Error>(data_);
+    [[nodiscard]] E& unwrap_err() & {
+        return std::get<E>(data_);
     }
-    [[nodiscard]] const Error& unwrap_err() const & {
-        return std::get<Error>(data_);
+    [[nodiscard]] const E& unwrap_err() const & {
+        return std::get<E>(data_);
     }
-    [[nodiscard]] Error&& unwrap_err() && {
-        return std::move(std::get<Error>(data_));
+    [[nodiscard]] E&& unwrap_err() && {
+        return std::move(std::get<E>(data_));
     }
-    [[nodiscard]] const Error&& unwrap_err() const && {
-        return std::move(std::get<Error>(data_));
+    [[nodiscard]] const E&& unwrap_err() const && {
+        return std::move(std::get<E>(data_));
     }
 
-    [[nodiscard]] Error& expect_err(const std::string& msg) & {
+    [[nodiscard]] E& expect_err(const std::string& msg) & {
         return std::visit(
-              [&]<typename T0>(T0&& arg) -> Error& {
-              if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+              [&]<typename T0>(T0&& arg) -> E& {
+              if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                   return arg;
               } else {
                   throw std::runtime_error(msg);
@@ -154,10 +157,10 @@ public:
         },
         data_);
     }
-    [[nodiscard]] const Error& expect_err(const std::string& msg) const & {
+    [[nodiscard]] const E& expect_err(const std::string& msg) const & {
         return std::visit(
-              [&]<typename T0>(T0&& arg) -> const Error& {
-              if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+              [&]<typename T0>(T0&& arg) -> const E& {
+              if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                   return arg;
               } else {
                   throw std::runtime_error(msg);
@@ -165,10 +168,10 @@ public:
         },
         data_);
     }
-    [[nodiscard]] Error&& expect_err(const std::string& msg) && {
+    [[nodiscard]] E&& expect_err(const std::string& msg) && {
         return std::visit(
-              [&]<typename T0>(T0&& arg) -> Error&& {
-              if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+              [&]<typename T0>(T0&& arg) -> E&& {
+              if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                   return std::move(arg);
               } else {
                   throw std::runtime_error(msg);
@@ -176,10 +179,10 @@ public:
         },
         data_);
     }
-    [[nodiscard]] const Error&& expect_err(const std::string& msg) const && {
+    [[nodiscard]] const E&& expect_err(const std::string& msg) const && {
         return std::visit(
-              [&]<typename T0>(T0&& arg) -> const Error&& {
-              if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+              [&]<typename T0>(T0&& arg) -> const E&& {
+              if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                   return std::move(arg);
               } else {
                   throw std::runtime_error(msg);
@@ -190,8 +193,8 @@ public:
 
     template<typename FOk, typename FErr>
       requires std::invocable<FOk> &&
-          std::invocable<FErr, Error&> &&
-          std::is_same_v<std::invoke_result_t<FOk>, std::invoke_result_t<FErr, Error&>>
+          std::invocable<FErr, E&> &&
+          std::is_same_v<std::invoke_result_t<FOk>, std::invoke_result_t<FErr, E&>>
     auto match(FOk&& ok_fn, FErr&& err_fn) & {
         using ResultType = std::invoke_result_t<FOk>;
 
@@ -208,8 +211,8 @@ public:
     }
     template<typename FOk, typename FErr>
       requires std::invocable<FOk> &&
-          std::invocable<FErr, Error&> &&
-          std::is_same_v<std::invoke_result_t<FOk>, std::invoke_result_t<FErr, Error&>>
+          std::invocable<FErr, E&> &&
+          std::is_same_v<std::invoke_result_t<FOk>, std::invoke_result_t<FErr, E&>>
     auto match(FOk&& ok_fn, FErr&& err_fn) const & {
         using ResultType = std::invoke_result_t<FOk>;
 
@@ -226,8 +229,8 @@ public:
     }
     template<typename FOk, typename FErr>
       requires std::invocable<FOk> &&
-          std::invocable<FErr, Error&> &&
-          std::is_same_v<std::invoke_result_t<FOk>, std::invoke_result_t<FErr, Error&>>
+          std::invocable<FErr, E&> &&
+          std::is_same_v<std::invoke_result_t<FOk>, std::invoke_result_t<FErr, E&>>
     auto match(FOk&& ok_fn, FErr&& err_fn) && {
         using ResultType = std::invoke_result_t<FOk>;
 
@@ -244,8 +247,8 @@ public:
     }
     template<typename FOk, typename FErr>
       requires std::invocable<FOk> &&
-          std::invocable<FErr, Error&> &&
-          std::is_same_v<std::invoke_result_t<FOk>, std::invoke_result_t<FErr, Error&>>
+          std::invocable<FErr, E&> &&
+          std::is_same_v<std::invoke_result_t<FOk>, std::invoke_result_t<FErr, E&>>
     auto match(FOk&& ok_fn, FErr&& err_fn) const && {
         using ResultType = std::invoke_result_t<FOk>;
 
@@ -295,37 +298,37 @@ public:
         return and_then_impl(std::move(*this), std::forward<F>(f));
     }
 
-    template<typename F> requires std::invocable<F, Error&>
-    Result<void> map_err(F&& f) & {
+    template<typename F> requires std::invocable<F, E&>
+    Result<void, E> map_err(F&& f) & {
         return map_err_impl(*this, std::forward<F>(f));
     }
-    template<typename F> requires std::invocable<F, const Error&>
-    Result<void> map_err(F&& f) const & {
+    template<typename F> requires std::invocable<F, const E&>
+    Result<void, E> map_err(F&& f) const & {
         return map_err_impl(*this, std::forward<F>(f));
     }
-    template<typename F> requires std::invocable<F, Error&&>
-    Result<void> map_err(F&& f) && {
+    template<typename F> requires std::invocable<F, E&&>
+    Result<void, E> map_err(F&& f) && {
         return map_err_impl(std::move(*this), std::forward<F>(f));
     }
-    template<typename F> requires std::invocable<F, const Error&&>
-    Result<void> map_err(F&& f) const && {
+    template<typename F> requires std::invocable<F, const E&&>
+    Result<void, E> map_err(F&& f) const && {
         return map_err_impl(std::move(*this), std::forward<F>(f));
     }
 
-    template<typename F> requires returns_result_for<F, Error&>
-    Result<void> or_else(F&& f) & {
+    template<typename F> requires returns_result_for<F, E&>
+    Result<void, E> or_else(F&& f) & {
         return or_else_impl(*this, std::forward<F>(f));
     }
-    template<typename F> requires returns_result_for<F, const Error&>
-    Result<void> or_else(F&& f) const & {
+    template<typename F> requires returns_result_for<F, const E&>
+    Result<void, E> or_else(F&& f) const & {
         return or_else_impl(*this, std::forward<F>(f));
     }
-    template<typename F> requires returns_result_for<F, Error&&>
-    Result<void> or_else(F&& f) && {
+    template<typename F> requires returns_result_for<F, E&&>
+    Result<void, E> or_else(F&& f) && {
         return or_else_impl(std::move(*this), std::forward<F>(f));
     }
-    template<typename F> requires returns_result_for<F, const Error&&>
-    Result<void> or_else(F&& f) const && {
+    template<typename F> requires returns_result_for<F, const E&&>
+    Result<void, E> or_else(F&& f) const && {
         return or_else_impl(std::move(*this), std::forward<F>(f));
     }
 
@@ -349,23 +352,23 @@ private:
     template<typename... Args>
     explicit Result(std::in_place_index_t<1>, Args&&... args) : data_(std::in_place_index<1>, std::forward<Args>(args)...) {}
 
-    std::variant<std::monostate, Error> data_;
+    std::variant<std::monostate, E> data_;
 
     template <typename Self, typename F>
     static auto map_impl(Self&& self, F&& f) {
         using ResultType = std::invoke_result_t<F>;
 
         return std::visit(
-            [&]<typename T0>(T0&& arg) -> Result<ResultType> {
+            [&]<typename T0>(T0&& arg) -> Result<ResultType, E> {
                 if constexpr (std::is_same_v<std::decay_t<T0>, std::monostate>) {
                     if constexpr (std::is_void_v<ResultType>) {
                         std::invoke(std::forward<F>(f));
-                        return Result<void>::ok();
+                        return Result<void, E>::ok();
                     } else {
-                        return Result<ResultType>::ok(std::invoke(std::forward<F>(f)));
+                        return Result<ResultType, E>::ok(std::invoke(std::forward<F>(f)));
                     }
                 } else {
-                    return Result<ResultType>::err(std::forward<T0>(arg));
+                    return Result<ResultType, E>::err(std::forward<T0>(arg));
                 }
             },
             std::forward<Self>(self).data_
@@ -389,17 +392,17 @@ private:
     }
 
     template <typename Self, typename F>
-    static Result<void> map_err_impl(Self&& self, F&& f) {
+    static Result<void, E> map_err_impl(Self&& self, F&& f) {
         return std::visit(
-            [&]<typename T0>(T0&& arg) -> Result<void> {
+            [&]<typename T0>(T0&& arg) -> Result<void, E> {
                 if constexpr (std::is_same_v<std::decay_t<T0>, std::monostate>) {
-                    return Result<void>::ok();
+                    return Result<void, E>::ok();
                 } else {
                     using FResult = std::invoke_result_t<F, T0>;
-                    if constexpr (std::is_same_v<FResult, Error>) {
-                        return Result<void>::err(std::invoke(std::forward<F>(f), std::forward<T0>(arg)));
+                    if constexpr (std::is_same_v<FResult, E>) {
+                        return Result<void, E>::err(std::invoke(std::forward<F>(f), std::forward<T0>(arg)));
                     } else {
-                      return Result<void>::err(Error{std::invoke(std::forward<F>(f), std::forward<T0>(arg))});
+                      return Result<void, E>::err_in_place(std::invoke(std::forward<F>(f), std::forward<T0>(arg)));
                     }
                 }
             },
@@ -408,11 +411,11 @@ private:
     }
 
     template <typename Self, typename F>
-    static Result<void> or_else_impl(Self&& self, F&& f) {
+    static Result<void, E> or_else_impl(Self&& self, F&& f) {
         return std::visit(
-            [&]<typename T0>(T0&& arg) -> Result<void> {
+            [&]<typename T0>(T0&& arg) -> Result<void, E> {
                 if constexpr (std::is_same_v<std::decay_t<T0>, std::monostate>) {
-                    return Result<void>::ok();
+                    return Result<void, E>::ok();
                 } else {
                     return std::invoke(std::forward<F>(f), std::forward<T0>(arg));
                 }
@@ -422,45 +425,46 @@ private:
     }
 };
 
-template<typename T>
+template<typename T, typename E>
 class Result {
 public:
     using value_type = T;
-    using error_type = Error;
+    using error_type = E;
 
-    [[nodiscard]] static Result<T> ok(T value) {
-        return Result<T>(std::in_place_index<0>, std::move(value));
+    [[nodiscard]] static Result<T, E> ok(T value) {
+        return Result<T, E>(std::in_place_index<0>, std::move(value));
     }
 
     template<typename U>
         requires std::constructible_from<T, U>
-    [[nodiscard]] static Result<T> ok(U&& value) {
-        return Result<T>(std::in_place_index<0>, T(std::forward<U>(value)));
+    [[nodiscard]] static Result<T, E> ok(U&& value) {
+        return Result<T, E>(std::in_place_index<0>, T(std::forward<U>(value)));
     }
 
     template<typename... Args>
         requires std::constructible_from<T, Args...>
-    [[nodiscard]] static Result<T> ok_in_place(Args&&... args) {
-      return Result<T>(std::in_place_index<0>, std::forward<Args>(args)...);
+    [[nodiscard]] static Result<T, E> ok_in_place(Args&&... args) {
+      return Result<T, E>(std::in_place_index<0>, std::forward<Args>(args)...);
     }
 
-    [[nodiscard]] static Result<T> err(const std::string &message, const int code = 0) {
-        return Result<T>(std::in_place_index<1>, Error{message, code});
+    [[nodiscard]] static Result<T, E> err(const std::string &message, const int code = 0)
+        requires std::is_same_v<E, Error>
+    {
+        return Result<T, E>(std::in_place_index<1>, Error{message, code});
     }
 
-    [[nodiscard]] static Result<T> err(Error error) {
-        return Result<T>(std::in_place_index<1>, std::move(error));
+    [[nodiscard]] static Result<T, E> err(E error) {
+        return Result<T, E>(std::in_place_index<1>, std::move(error));
     }
 
-    // it will help if we add costume error type
     template<typename... EArgs>
-        requires std::constructible_from<Error, EArgs...>
-    [[nodiscard]] static Result<T> err_in_place(EArgs&&... args) {
-      return Result<T>(std::in_place_index<1>, std::forward<EArgs>(args)...);
+        requires std::constructible_from<E, EArgs...>
+    [[nodiscard]] static Result<T, E> err_in_place(EArgs&&... args) {
+      return Result<T, E>(std::in_place_index<1>, std::forward<EArgs>(args)...);
     }
 
     [[nodiscard]] bool is_ok() const { return std::holds_alternative<T>(data_);  }
-    [[nodiscard]] bool is_err() const { return std::holds_alternative<Error>(data_); }
+    [[nodiscard]] bool is_err() const { return std::holds_alternative<E>(data_); }
     explicit operator bool() const noexcept { return is_ok(); }
 
     T* operator->() & { return &unwrap(); }
@@ -476,8 +480,10 @@ public:
             [&]<typename T0>(T0& arg) -> T& {
                 if constexpr (std::is_same_v<std::decay_t<T0>, T>) {
                     return arg;
-                } else {
+                } else if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
                   throw std::runtime_error(msg + ": " + arg.message);
+                } else {
+                  throw std::runtime_error(msg);
                 }
             }, data_);
     }
@@ -486,8 +492,10 @@ public:
             [&]<typename T0>(const T0& arg) -> const T& {
                 if constexpr (std::is_same_v<std::decay_t<T0>, T>) {
                     return arg;
-                } else {
+                } else if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
                   throw std::runtime_error(msg + ": " + arg.message);
+                } else {
+                  throw std::runtime_error(msg);
                 }
             }, data_);
     }
@@ -496,8 +504,10 @@ public:
             [&]<typename T0>(T0&& arg) -> T&& {
                 if constexpr (std::is_same_v<std::decay_t<T0>, T>) {
                     return std::move(arg);
-                } else {
+                } else if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
                   throw std::runtime_error(msg + ": " + arg.message);
+                } else {
+                  throw std::runtime_error(msg);
                 }
             }, data_);
     }
@@ -506,8 +516,10 @@ public:
             [&]<typename T0>(const T0&& arg) -> const T&& {
                 if constexpr (std::is_same_v<std::decay_t<T0>, T>) {
                     return std::move(arg);
-                } else {
+                } else if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
                   throw std::runtime_error(msg + ": " + arg.message);
+                } else {
+                  throw std::runtime_error(msg);
                 }
             }, data_);
     }
@@ -527,10 +539,10 @@ public:
 
     // Removed unwrap_move(), which is replaced by T&& unwrap() &&
 
-    [[nodiscard]] Error& unwrap_err() & {
+    [[nodiscard]] E& unwrap_err() & {
         return std::visit(
-            [&]<typename T0>(T0& arg) -> Error& {
-                if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+            [&]<typename T0>(T0& arg) -> E& {
+                if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                     return arg;
                 } else {
                   throw std::runtime_error("Attempted to unwrap_err on ok result");
@@ -538,10 +550,10 @@ public:
             },
         data_);
     }
-    [[nodiscard]] const Error& unwrap_err() const & {
+    [[nodiscard]] const E& unwrap_err() const & {
         return std::visit(
-            [&]<typename T0>(const T0& arg) -> const Error& {
-                if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+            [&]<typename T0>(const T0& arg) -> const E& {
+                if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                     return arg;
                 } else {
                   throw std::runtime_error("Attempted to unwrap_err on ok result");
@@ -549,10 +561,10 @@ public:
             },
         data_);
     }
-    [[nodiscard]] Error&& unwrap_err() && {
+    [[nodiscard]] E&& unwrap_err() && {
         return std::visit(
-            [&]<typename T0>(T0&& arg) -> Error&& {
-                if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+            [&]<typename T0>(T0&& arg) -> E&& {
+                if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                     return std::move(arg);
                 } else {
                   throw std::runtime_error("Attempted to unwrap_err on ok result");
@@ -560,10 +572,10 @@ public:
             },
         data_);
     }
-    [[nodiscard]] const Error&& unwrap_err() const && {
+    [[nodiscard]] const E&& unwrap_err() const && {
         return std::visit(
-            [&]<typename T0>(const T0&& arg) -> const Error&& {
-                if constexpr (std::is_same_v<std::decay_t<T0>, Error>) {
+            [&]<typename T0>(const T0&& arg) -> const E&& {
+                if constexpr (std::is_same_v<std::decay_t<T0>, E>) {
                     return std::move(arg);
                 } else {
                   throw std::runtime_error("Attempted to unwrap_err on ok result");
@@ -574,29 +586,29 @@ public:
 
     template<typename FOk, typename FErr>
         requires std::invocable<FOk, T&> &&
-                 std::invocable<FErr, Error&> &&
-                 std::is_same_v<std::invoke_result_t<FOk, T&>, std::invoke_result_t<FErr, Error&>>
+                 std::invocable<FErr, E&> &&
+                 std::is_same_v<std::invoke_result_t<FOk, T&>, std::invoke_result_t<FErr, E&>>
     auto match(FOk&& ok_fn, FErr&& err_fn) & {
         return match_impl(*this, std::forward<FOk>(ok_fn), std::forward<FErr>(err_fn));
     }
     template<typename FOk, typename FErr>
         requires std::invocable<FOk, const T&> &&
-                 std::invocable<FErr, const Error&> &&
-                 std::is_same_v<std::invoke_result_t<FOk, const T&>, std::invoke_result_t<FErr, const Error&>>
+                 std::invocable<FErr, const E&> &&
+                 std::is_same_v<std::invoke_result_t<FOk, const T&>, std::invoke_result_t<FErr, const E&>>
     auto match(FOk&& ok_fn, FErr&& err_fn) const & {
         return match_impl(*this, std::forward<FOk>(ok_fn), std::forward<FErr>(err_fn));
     }
     template<typename FOk, typename FErr>
         requires std::invocable<FOk, T&&> &&
-                 std::invocable<FErr, Error&&> &&
-                 std::is_same_v<std::invoke_result_t<FOk, T&&>, std::invoke_result_t<FErr, Error&&>>
+                 std::invocable<FErr, E&&> &&
+                 std::is_same_v<std::invoke_result_t<FOk, T&&>, std::invoke_result_t<FErr, E&&>>
     auto match(FOk&& ok_fn, FErr&& err_fn) && {
         return match_impl(*this, std::forward<FOk>(ok_fn), std::forward<FErr>(err_fn));
     }
     template<typename FOk, typename FErr>
         requires std::invocable<FOk, const T&&> &&
-                 std::invocable<FErr, const Error&&> &&
-                 std::is_same_v<std::invoke_result_t<FOk, const T&&>, std::invoke_result_t<FErr, const Error&&>>
+                 std::invocable<FErr, const E&&> &&
+                 std::is_same_v<std::invoke_result_t<FOk, const T&&>, std::invoke_result_t<FErr, const E&&>>
     auto match(FOk&& ok_fn, FErr&& err_fn) const && {
         return match_impl(*this, std::forward<FOk>(ok_fn), std::forward<FErr>(err_fn));
     }
@@ -610,22 +622,22 @@ public:
         return std::move(default_val);
     }
 
-    template<typename F> requires std::invocable<F, Error&> && std::is_same_v<std::invoke_result_t<F, Error&>, T>
+    template<typename F> requires std::invocable<F, E&> && std::is_same_v<std::invoke_result_t<F, E&>, T>
     T unwrap_or_else(F&& f) & {
         if (is_ok()) return std::get<T>(data_);
-        return std::invoke(std::forward<F>(f), std::get<Error>(data_));
+        return std::invoke(std::forward<F>(f), std::get<E>(data_));
     }
-    template<typename F> requires std::invocable<F, const Error&> && std::is_same_v<std::invoke_result_t<F, const Error&>, T>
+    template<typename F> requires std::invocable<F, const E&> && std::is_same_v<std::invoke_result_t<F, const E&>, T>
     T unwrap_or_else(F&& f) const & {
         if (is_ok()) return std::get<T>(data_);
-        return std::invoke(std::forward<F>(f), std::get<Error>(data_));
+        return std::invoke(std::forward<F>(f), std::get<E>(data_));
     }
-    template<typename F> requires std::invocable<F, Error&&> && std::is_same_v<std::invoke_result_t<F, Error&&>, T>
+    template<typename F> requires std::invocable<F, E&&> && std::is_same_v<std::invoke_result_t<F, E&&>, T>
     T unwrap_or_else(F&& f) && {
         if (is_ok()) return std::move(std::get<T>(data_));
-        return std::invoke(std::forward<F>(f), std::move(std::get<Error>(data_)));
+        return std::invoke(std::forward<F>(f), std::move(std::get<E>(data_)));
     }
-    template<typename F> requires std::invocable<F, const Error&&> && std::is_same_v<std::invoke_result_t<F, const Error&&>, T>
+    template<typename F> requires std::invocable<F, const E&&> && std::is_same_v<std::invoke_result_t<F, const E&&>, T>
     T unwrap_or_else(F&& f) const && {
         if (is_ok()) return std::move(std::get<T>(data_));
         return std::invoke(std::forward<F>(f), std::move(std::get<Error>(data_)));
@@ -640,20 +652,20 @@ public:
         return nullptr;
     }
 
-    [[nodiscard]] Error& expect_err(const std::string& msg) & {
-        if (is_err()) return std::get<Error>(data_);
+    [[nodiscard]] E& expect_err(const std::string& msg) & {
+        if (is_err()) return std::get<E>(data_);
         throw std::runtime_error(msg);
     }
-    [[nodiscard]] const Error& expect_err(const std::string& msg) const & {
-        if (is_err()) return std::get<Error>(data_);
+    [[nodiscard]] const E& expect_err(const std::string& msg) const & {
+        if (is_err()) return std::get<E>(data_);
         throw std::runtime_error(msg);
     }
-    [[nodiscard]] Error&& expect_err(const std::string& msg) && {
-        if (is_err()) return std::move(std::get<Error>(data_));
+    [[nodiscard]] E&& expect_err(const std::string& msg) && {
+        if (is_err()) return std::move(std::get<E>(data_));
         throw std::runtime_error(msg);
     }
-    [[nodiscard]] const Error&& expect_err(const std::string& msg) const && {
-        if (is_err()) return std::move(std::get<Error>(data_));
+    [[nodiscard]] const E&& expect_err(const std::string& msg) const && {
+        if (is_err()) return std::move(std::get<E>(data_));
         throw std::runtime_error(msg);
     }
 
@@ -691,36 +703,36 @@ public:
         return map_impl(std::move(*this), std::forward<F>(f));
     }
 
-    template<std::invocable<Error&> F>
+    template<std::invocable<E&> F>
     Result<T> map_err(F&& f) & {
         return map_err_impl(*this, std::forward<F>(f));
     }
-    template<std::invocable<const Error&> F>
+    template<std::invocable<const E&> F>
     Result<T> map_err(F&& f) const & {
         return map_err_impl(*this, std::forward<F>(f));
     }
-    template<std::invocable<Error&&> F>
+    template<std::invocable<E&&> F>
     Result<T> map_err(F&& f) && {
         return map_err_impl(std::move(*this), std::forward<F>(f));
     }
-    template<std::invocable<const Error&&> F>
+    template<std::invocable<const E&&> F>
     Result<T> map_err(F&& f) const && {
         return map_err_impl(std::move(*this), std::forward<F>(f));
     }
 
-    template<typename F> requires returns_result_for<F, Error&>
+    template<typename F> requires returns_result_for<F, E&>
     Result<T> or_else(F&& f) & {
         return or_else_impl(*this, std::forward<F>(f));
     }
-    template<typename F> requires returns_result_for<F, const Error&>
+    template<typename F> requires returns_result_for<F, const E&>
     Result<T> or_else(F&& f) const & {
         return or_else_impl(*this, std::forward<F>(f));
     }
-    template<typename F> requires returns_result_for<F, Error&&>
+    template<typename F> requires returns_result_for<F, E&&>
     Result<T> or_else(F&& f) && {
         return or_else_impl(std::move(*this), std::forward<F>(f));
     }
-    template<typename F> requires returns_result_for<F, const Error&&>
+    template<typename F> requires returns_result_for<F, const E&&>
     Result<T> or_else(F&& f) const && {
         return or_else_impl(std::move(*this), std::forward<F>(f));
     }
@@ -747,7 +759,7 @@ private:
     template<typename... Args>
     explicit Result(std::in_place_index_t<1>, Args&&... args) : data_(std::in_place_index<1>, std::forward<Args>(args)...) {}
 
-    std::variant<T, Error> data_;
+    std::variant<T, E> data_;
 
     template <typename Self, typename FOk, typename FErr>
     static auto match_impl(Self&& self, FOk&& ok_fn, FErr&& err_fn) {
@@ -768,18 +780,18 @@ private:
         using ResultType = std::invoke_result_t<F, decltype(std::forward<Self>(self).unwrap())>;
 
         return std::visit(
-            [&]<typename T0>(T0&& arg) -> Result<ResultType> {
+            [&]<typename T0>(T0&& arg) -> Result<ResultType, E> {
                 if constexpr (std::is_same_v<std::decay_t<T0>, T>) {
                     if constexpr (std::is_void_v<ResultType>) {
                       std::invoke(std::forward<F>(f), std::forward<T0>(arg));
-                      return Result<void>::ok();
+                      return Result<void, E>::ok();
                     } else {
-                        return Result<ResultType>::ok(
+                        return Result<ResultType, E>::ok(
                             std::invoke(std::forward<F>(f), std::forward<T0>(arg))
                         );
                     }
                 } else {
-                    return Result<ResultType>::err(std::forward<T0>(arg));
+                    return Result<ResultType, E>::err(std::forward<T0>(arg));
                 }
             }, std::forward<Self>(self).data_);
     }
@@ -801,24 +813,24 @@ private:
     template <typename Self, typename F>
     static Result<T> map_err_impl(Self&& self, F&& f) {
         return std::visit(
-            [&]<typename T0>(T0&& arg) -> Result<T> {
+            [&]<typename T0>(T0&& arg) -> Result<T, E> {
                 if constexpr (std::is_same_v<std::decay_t<T0>, T>) {
-                    return Result<T>::ok(std::forward<T0>(arg));
+                    return Result<T, E>::ok(std::forward<T0>(arg));
                 } else {
                     using FResult = std::invoke_result_t<F, T0>;
-                    if constexpr (std::is_same_v<FResult, Error>) {
+                    if constexpr (std::is_same_v<FResult, E>) {
                         return Result<T>::err(std::invoke(std::forward<F>(f), std::forward<T0>(arg)));
                     } else {
-                        return Result<T>::err(Error{std::invoke(std::forward<F>(f), std::forward<T0>(arg))});
+                        return Result<T, E>::err_in_place(std::invoke(std::forward<F>(f), std::forward<T0>(arg)));
                     }
                 }
             }, std::forward<Self>(self).data_);
     }
 
     template <typename Self, typename F>
-    static Result<T> or_else_impl(Self&& self, F&& f) {
+    static Result<T, E> or_else_impl(Self&& self, F&& f) {
         return std::visit(
-            [&]<typename T0>(T0&& arg) -> Result<T> {
+            [&]<typename T0>(T0&& arg) -> Result<T, E> {
                 if constexpr (std::is_same_v<std::decay_t<T0>, T>) {
                     return Result<T>::ok(std::forward<T0>(arg));
                 } else {
@@ -827,3 +839,5 @@ private:
             }, std::forward<Self>(self).data_);
     }
 };
+
+#endif // C++20
