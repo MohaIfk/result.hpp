@@ -44,3 +44,7 @@
 /.vscode
 /cmake-*
 /build
+# Doxygen output
+html/
+latex/
+Doxyfile.bak

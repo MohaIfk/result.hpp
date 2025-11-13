@@ -1,0 +1,9 @@
+PROJECT_NAME           = "Result.hpp"
+INPUT                  = src README.md
+EXTRACT_ALL            = YES
+GENERATE_LATEX         = NO
+RECURSIVE              = YES
+OPTIMIZE_OUTPUT_FOR_C  = YES
+QT_AUTOBRIEF           = YES
+USE_MDFILE_AS_MAINPAGE = README.md
+EXCLUDE                = tests build
