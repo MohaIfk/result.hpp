@@ -3,6 +3,8 @@
 ![Language](https://img.shields.io/badge/language-C%2B%2B20-blue.svg)
 [![Header-Only](https://img.shields.io/badge/Header--only-lightgrey.svg)]()
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
+![C++ CI](https://github.com/MohaIfk/result. hpp/actions/workflows/ci.yml/badge.svg)
+
 
 A single-header, lightweight C++20 implementation of a `Result` type for robust, exception-free error handling.
 
