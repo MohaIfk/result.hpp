@@ -218,6 +218,13 @@ public:
      * @brief Does nothing if the `Result` is `Ok`, otherwise throws a `std::runtime_error` with a custom message.
      * @param msg The message to include in the exception.
      * @throw std::runtime_error if the `Result` is an `Err`.
+     *
+     * @warning This function will throw an exception if the `Result` is an `Err`.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::err("emergency failure");
+     * x.expect("Testing expect"); // Throws a std::runtime_error with message "Testing expect: emergency failure"
+     * @endcode
      */
     void expect(const std::string& msg) & {
         if (is_err()) {
@@ -262,6 +269,16 @@ public:
     /**
      * @brief Does nothing if the `Result` is `Ok`, otherwise throws a `std::runtime_error`.
      * @throw std::runtime_error if the `Result` is an `Err`.
+     *
+     * @warning This function will throw an exception if the `Result` is an `Err`.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::ok();
+     * x.unwrap(); // Does nothing
+     *
+     * Result<void, std::string> y = Result<void, std::string>::err("emergency failure");
+     * y.unwrap(); // Throws a std::runtime_error
+     * @endcode
      */
     void unwrap() & {
         expect("Attempted to unwrap error result");
@@ -283,6 +300,16 @@ public:
      * @brief Returns the contained `Err` value.
      * @return A reference to the contained `Err` value.
      * @throw std::runtime_error if the `Result` is an `Ok`.
+     *
+     * @warning This function will throw an exception if the `Result` is an `Ok`.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::err("emergency failure");
+     * assert(x.unwrap_err() == "emergency failure");
+     *
+     * Result<int, std::string> y = Result<int, std::string>::ok(2);
+     * y.unwrap_err(); // Throws a std::runtime_error
+     * @endcode
      */
     [[nodiscard]] E& unwrap_err() & {
         return std::visit(
@@ -337,6 +364,13 @@ public:
      * @param msg The message to include in the exception.
      * @return A reference to the contained `Err` value.
      * @throw std::runtime_error if the `Result` is an `Ok`.
+     *
+     * @warning This function will throw an exception if the `Result` is an `Ok`.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::ok(10);
+     * x.expect_err("Testing expect_err"); // Throws a std::runtime_error with message "Testing expect_err"
+     * @endcode
      */
     [[nodiscard]] E& expect_err(const std::string& msg) & {
         if (is_err()) return std::get<E>(data_);
@@ -366,9 +400,18 @@ public:
      *
      * @tparam FOk The type of the function to apply to the `Ok` value.
      * @tparam FErr The type of the function to apply to the `Err` value.
-     * @param ok_fn The function to call if the `Result` is `Ok`.
-     * @param err_fn The function to call if the `Result` is `Err`.
+     * @param ok_fn A callable of signature `R()`.
+     * @param err_fn A callable of signature `R(E)`.
      * @return The value returned by either `ok_fn` or `err_fn`.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::ok();
+     * std::string s = x.match(
+     *     []() { return "ok"; },
+     *     [](const std::string& e) { return e; }
+     * );
+     * assert(s == "ok");
+     * @endcode
      */
     template<typename FOk, typename FErr>
       requires std::invocable<FOk> &&
@@ -405,7 +448,12 @@ public:
     /**
      * @brief Does nothing if `Ok`, otherwise calls a function with the `Err` value.
      * @tparam F The type of the function to call.
-     * @param f The function to call with the `Err` value.
+     * @param f A callable of signature `void(E)`.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::err("error");
+     * x.unwrap_or_else([](const std::string& e) { std::cout << "error: " << e << std::endl; }); // Prints "error: error"
+     * @endcode
      */
     template<typename F> requires std::invocable<F, E&> && std::is_void_v<std::invoke_result_t<F, E&>>
     void unwrap_or_else(F&& f) & {
@@ -438,8 +486,13 @@ public:
     /**
      * @brief Calls a function with the `Ok` value if the `Result` is `Ok`.
      * @tparam F The type of the function to call.
-     * @param f The function to call.
+     * @param f A callable of signature `void()`.
      * @return A reference to the `Result`.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::ok();
+     * x.inspect([]() { std::cout << "ok" << std::endl; }); // Prints "ok"
+     * @endcode
      */
     template<std::invocable F>
     Result& inspect(F&& f) & {
@@ -476,8 +529,13 @@ public:
     /**
      * @brief Calls a function with the `Err` value if the `Result` is `Err`.
      * @tparam F The type of the function to call.
-     * @param f The function to call with the `Err` value.
+     * @param f A callable of signature `void(E)`.
      * @return A reference to the `Result`.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::err("error");
+     * x.inspect_err([](const std::string& e) { std::cout << "error: " << e << std::endl; }); // Prints "error: error"
+     * @endcode
      */
     template<std::invocable<E&> F>
     Result& inspect_err(F&& f) & {
@@ -518,8 +576,18 @@ public:
      * If the `Result` is `Err`, returns the `Err` value.
      *
      * @tparam F The type of the function to call.
-     * @param f The function to call.
+     * @param f A callable of signature `Result<U, E>()`.
      * @return The `Result` returned by `f`, or the original `Err` value.
+     *
+     * @note This is useful for chaining a sequence of operations that can each fail.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::ok();
+     * Result<int, std::string> y = x.and_then([]() {
+     *     return Result<int, std::string>::ok(100);
+     * });
+     * assert(y.unwrap() == 100);
+     * @endcode
      */
     template<typename F> requires returns_result_for<F>
     auto and_then(F&& f) & {
@@ -548,8 +616,14 @@ public:
      * If the `Result` is `Err`, returns the `Err` value.
      *
      * @tparam F The type of the function to call.
-     * @param f The function to call.
+     * @param f A callable of signature `U()`.
      * @return A new `Result` with the value returned by `f`, or the original `Err` value.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::ok();
+     * Result<int, std::string> y = x.map([]() { return 2; });
+     * assert(y.unwrap() == 2);
+     * @endcode
      */
     template<typename F> requires std::invocable<F>
     auto map(F&& f) & {
@@ -578,8 +652,14 @@ public:
      * If the `Result` is `Ok`, returns the `Ok` value.
      *
      * @tparam F The type of the function to call.
-     * @param f The function to call with the `Err` value.
+     * @param f A callable of signature `F(E)`.
      * @return A new `Result` with the error value returned by `f`, or the original `Ok` value.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::err("error");
+     * Result<void, int> y = x.map_err([](const std::string& e) { return e.length(); });
+     * assert(y.unwrap_err() == 5);
+     * @endcode
      */
     template<typename F> requires std::invocable<F, E&>
     auto map_err(F&& f) & {
@@ -607,8 +687,14 @@ public:
      * This is useful for error recovery.
      *
      * @tparam F The type of the function to call.
-     * @param f The function to call with the `Err` value.
+     * @param f A callable of signature `Result<void, E>(E)`.
      * @return The original `Result` if `Ok`, or the `Result` returned by `f`.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::err("error");
+     * Result<void, std::string> y = x.or_else([](const std::string& e) { return Result<void, std::string>::ok(); });
+     * assert(y.is_ok());
+     * @endcode
      */
     template<typename F> requires returns_result_for<F, E&>
     Result<void, E> or_else(F&& f) & {
@@ -633,6 +719,14 @@ public:
     /**
      * @brief Converts the `Result` to a `std::optional<std::monostate>`.
      * @return `std::monostate` if `Ok`, `std::nullopt` if `Err`.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::ok();
+     * assert(x.to_optional().has_value());
+     *
+     * Result<void, std::string> y = Result<void, std::string>::err("error");
+     * assert(!y.to_optional().has_value());
+     * @endcode
      */
     [[nodiscard]] std::optional<std::monostate> to_optional() const noexcept {
         return std::visit(
@@ -882,6 +976,13 @@ public:
      * @param msg The message to include in the exception.
      * @return A reference to the contained `Ok` value.
      * @throw std::runtime_error if the `Result` is an `Err`.
+     *
+     * @warning This function will throw an exception if the `Result` is an `Err`.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::err("emergency failure");
+     * x.expect("Testing expect"); // Throws a std::runtime_error with message "Testing expect: emergency failure"
+     * @endcode
      */
     T& expect(const std::string& msg) & {
         return std::visit(
@@ -939,6 +1040,16 @@ public:
      * @brief Returns the contained `Ok` value.
      * @return A reference to the contained `Ok` value.
      * @throw std::runtime_error if the `Result` is an `Err`.
+     *
+     * @warning This function will throw an exception if the `Result` is an `Err`.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::ok(2);
+     * assert(x.unwrap() == 2);
+     *
+     * Result<int, std::string> y = Result<int, std::string>::err("emergency failure");
+     * y.unwrap(); // Throws a std::runtime_error
+     * @endcode
      */
     T& unwrap() & {
         return expect("Attempted to unwrap error result");
@@ -960,6 +1071,16 @@ public:
      * @brief Returns the contained `Err` value.
      * @return A reference to the contained `Err` value.
      * @throw std::runtime_error if the `Result` is an `Ok`.
+     *
+     * @warning This function will throw an exception if the `Result` is an `Ok`.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::err("emergency failure");
+     * assert(x.unwrap_err() == "emergency failure");
+     *
+     * Result<void, std::string> y = Result<void, std::string>::ok();
+     * y.unwrap_err(); // Throws a std::runtime_error
+     * @endcode
      */
     [[nodiscard]] E& unwrap_err() & {
         return std::visit(
@@ -1014,6 +1135,13 @@ public:
      * @param msg The message to include in the exception.
      * @return A reference to the contained `Err` value.
      * @throw std::runtime_error if the `Result` is an `Ok`.
+     *
+     * @warning This function will throw an exception if the `Result` is an `Ok`.
+     *
+     * @code
+     * Result<void, std::string> x = Result<void, std::string>::ok();
+     * x.expect_err("Testing expect_err"); // Throws a std::runtime_error with message "Testing expect_err"
+     * @endcode
      */
     [[nodiscard]] E& expect_err(const std::string& msg) & {
         if (is_err()) return std::get<Err<E>>(data_).error;
@@ -1043,9 +1171,18 @@ public:
      *
      * @tparam FOk The type of the function to apply to the `Ok` value.
      * @tparam FErr The type of the function to apply to the `Err` value.
-     * @param ok_fn The function to call with the `Ok` value if the `Result` is `Ok`.
-     * @param err_fn The function to call with the `Err` value if the `Result` is `Err`.
+     * @param ok_fn A callable of signature `R(T)`.
+     * @param err_fn A callable of signature `R(E)`.
      * @return The value returned by either `ok_fn` or `err_fn`.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::ok(2);
+     * std::string s = x.match(
+     *     [](int v) { return std::to_string(v); },
+     *     [](const std::string& e) { return e; }
+     * );
+     * assert(s == "2");
+     * @endcode
      */
     template<typename FOk, typename FErr>
         requires std::invocable<FOk, T&> &&
@@ -1083,6 +1220,14 @@ public:
      * @brief Returns the contained `Ok` value or a provided default.
      * @param default_val The default value to return if the `Result` is `Err`.
      * @return The contained `Ok` value or `default_val`.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::ok(9);
+     * assert(x.unwrap_or(2) == 9);
+     *
+     * Result<int, std::string> y = Result<int, std::string>::err("error");
+     * assert(y.unwrap_or(2) == 2);
+     * @endcode
      */
     [[nodiscard]] T unwrap_or(const T& default_val) const & noexcept {
         if(is_ok()) return std::get<Ok<T>>(data_).value;
@@ -1097,8 +1242,18 @@ public:
     /**
      * @brief Returns the contained `Ok` value or computes it from a function.
      * @tparam F The type of the function to call.
-     * @param f The function to call with the `Err` value.
+     * @param f A callable of signature `T(E)`.
      * @return The contained `Ok` value or the value returned by `f`.
+     *
+     * @code
+     * auto count = [](const std::string& s) { return s.length(); };
+     *
+     * Result<int, std::string> x = Result<int, std::string>::ok(2);
+     * assert(x.unwrap_or_else(count) == 2);
+     *
+     * Result<int, std::string> y = Result<int, std::string>::err("foo");
+     * assert(y.unwrap_or_else(count) == 3);
+     * @endcode
      */
     template<typename F> requires std::invocable<F, E&> && std::is_same_v<std::invoke_result_t<F, E&>, T>
     T unwrap_or_else(F&& f) & {
@@ -1127,8 +1282,13 @@ public:
     /**
      * @brief Calls a function with the `Ok` value if the `Result` is `Ok`.
      * @tparam F The type of the function to call.
-     * @param f The function to call with the `Ok` value.
+     * @param f A callable of signature `void(T)`.
      * @return A reference to the `Result`.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::ok(2);
+     * x.inspect([](int v) { std::cout << "value: " << v << std::endl; }); // Prints "value: 2"
+     * @endcode
      */
     template<std::invocable<T&> F>
     Result& inspect(F&& f) & {
@@ -1203,6 +1363,16 @@ public:
     /**
      * @brief Returns a pointer to the contained value, or `nullptr`.
      * @return A pointer to the contained value if `Ok`, otherwise `nullptr`.
+     *
+     * @note This method is a safe way to get a mutable pointer to the contained value.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::ok(2);
+     * if (int* v = x.try_unwrap()) {
+     *     *v = 4;
+     * }
+     * assert(x.unwrap() == 4);
+     * @endcode
      */
     [[nodiscard]] T* try_unwrap() & noexcept {
         if(is_ok()) return &std::get<Ok<T>>(data_).value;
@@ -1221,8 +1391,18 @@ public:
      * If the `Result` is `Err`, returns the `Err` value.
      *
      * @tparam F The type of the function to call.
-     * @param f The function to call with the `Ok` value.
+     * @param f A callable of signature `Result<U, E>(T)`.
      * @return The `Result` returned by `f`, or the original `Err` value.
+     *
+     * @note This is useful for chaining a sequence of operations that can each fail.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::ok(2);
+     * Result<std::string, std::string> y = x.and_then([](int v) {
+     *     return Result<std::string, std::string>::ok(std::to_string(v));
+     * });
+     * assert(y.unwrap() == "2");
+     * @endcode
      */
     template<typename F> requires returns_result_for<F, T&>
     auto and_then(F&& f) & {
@@ -1251,8 +1431,14 @@ public:
      * If the `Result` is `Err`, returns the `Err` value.
      *
      * @tparam F The type of the function to call.
-     * @param f The function to call with the `Ok` value.
+     * @param f A callable of signature `U(T)`.
      * @return A new `Result` with the value returned by `f`, or the original `Err` value.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::ok(2);
+     * Result<std::string, std::string> y = x.map([](int v) { return std::to_string(v); });
+     * assert(y.unwrap() == "2");
+     * @endcode
      */
     template<std::invocable<T&> F>
     auto map(F&& f) & {
@@ -1281,8 +1467,14 @@ public:
      * If the `Result` is `Ok`, returns the `Ok` value.
      *
      * @tparam F The type of the function to call.
-     * @param f The function to call with the `Err` value.
+     * @param f A callable of signature `F(E)`.
      * @return A new `Result` with the error value returned by `f`, or the original `Ok` value.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::err("error");
+     * Result<int, int> y = x.map_err([](const std::string& e) { return e.length(); });
+     * assert(y.unwrap_err() == 5);
+     * @endcode
      */
     template<std::invocable<E&> F>
     auto map_err(F&& f) & {
@@ -1338,6 +1530,11 @@ public:
      * @tparam U The type of the value to compare against.
      * @param value The value to compare against.
      * @return `true` if the `Result` is `Ok` and the contained value is equal to `value`, `false` otherwise.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::ok(2);
+     * assert(x.contains(2));
+     * @endcode
      */
     template<typename U>
     bool contains(const U& value) const noexcept {
@@ -1348,6 +1545,14 @@ public:
     /**
      * @brief Converts the `Result` to a `std::optional<T>`.
      * @return An optional containing the `Ok` value if the `Result` is `Ok`, otherwise `std::nullopt`.
+     *
+     * @code
+     * Result<int, std::string> x = Result<int, std::string>::ok(2);
+     * assert(x.to_optional().value() == 2);
+     *
+     * Result<int, std::string> y = Result<int, std::string>::err("error");
+     * assert(!y.to_optional().has_value());
+     * @endcode
      */
     [[nodiscard]] std::optional<T> to_optional() const & noexcept {
         if(is_ok()) return std::get<Ok<T>>(data_).value;
