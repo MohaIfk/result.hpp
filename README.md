@@ -212,6 +212,24 @@ The class is `Result<T, E = Error>`. A specialization `Result<void, E>` is provi
 
 *All methods have &, const &, &&, and const && overloads for maximum performance and move-safety.*
 
+## Documentation
+
+The source code is fully documented using Doxygen-style comments. You can generate a full API reference using Doxygen.
+
+1.  **Install Doxygen:**
+    ```shell
+    # On Debian/Ubuntu
+    sudo apt-get install doxygen
+    # On macOS (using Homebrew)
+    brew install doxygen
+    ```
+2.  **Generate Documentation:**
+    Run Doxygen to generate the documentation:
+    ```shell
+    doxygen
+    ```
+    This will create an `docs/html` directory containing the generated documentation. Open `docs/html/index.html` in your browser to view the API reference.
+
 ## Building the Tests
 
 The test suite is built with GoogleTest.

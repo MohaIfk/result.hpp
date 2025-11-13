@@ -44,3 +44,6 @@
 /.vscode
 /cmake-*
 /build
+
+# doxygen
+/docs
