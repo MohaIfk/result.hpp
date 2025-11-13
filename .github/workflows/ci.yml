@@ -1,0 +1,63 @@
+name: C++ CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "*" ]
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # Don't cancel all jobs if one fails
+      fail-fast: false
+      matrix:
+        include:
+          - name: "GCC (Ubuntu)"
+            os: ubuntu-latest
+            cxx: g++-13
+            cc: gcc-13
+          - name: "MSVC (Windows)"
+            os: windows-latest
+            # On Windows, CMake finds MSVC by default. 
+            # These env vars are placeholders but not strictly needed.
+            cxx: cl.exe 
+            cc: cl.exe
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # ------------------------------------------------------------------
+    # Linux (GCC) Specific Setup
+    # ------------------------------------------------------------------
+    - name: Install dependencies (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        # Install a C++20 compatible compiler
+        sudo apt-get install -y ${{ matrix.cxx }}
+
+    # ------------------------------------------------------------------
+    # Configure, Build, and Test (All Platforms)
+    # ------------------------------------------------------------------
+    - name: Configure CMake
+      run: cmake -B build -S .
+      env:
+        # Set compiler for Linux. On Windows, this is ignored and 
+        # CMake will find the default (MSVC)
+        CXX: ${{ matrix.cxx }}
+        CC: ${{ matrix.cc }}
+
+    - name: Build
+      # We add --config Release for a release build. 
+      # GTest will be built as part of this.
+      run: cmake --build build --config Release
+
+    - name: Run Tests
+      # This runs CTest, which was configured by gtest_discover_tests
+      working-directory: ${{github.workspace}}/build
+      run: ctest -C Release --output-on-failure
